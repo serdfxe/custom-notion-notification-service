@@ -69,11 +69,11 @@ jobs:
 
     - name: Run migrations
       env:
-        DB_URL: postgres://user:password@localhost:5432/test_db
+        DB_URL: postgresql+asyncpg://user:password@localhost:5432/test_db
       run: |
         alembic upgrade head
 
     - name: Run tests
       env:
-        DB_URL: postgres://user:password@localhost:5432/test_db
+        DB_URL: postgresql+asyncpg://user:password@localhost:5432/test_db
       run: pytest
