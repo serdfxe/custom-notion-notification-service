@@ -68,6 +68,8 @@ jobs:
         done
 
     - name: Run migrations
+      env:
+        DB_URL: postgres://user:password@localhost:5432/test_db
       run: |
         alembic upgrade head
 
