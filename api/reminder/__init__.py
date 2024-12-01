@@ -125,3 +125,8 @@ async def delete_reminder_route(
     and the user identification, which is verified through the X-User-Id header.
     If the reminder does not exist, a 404 error will be returned.
     """
+
+def bad_code():
+    ...
+def bad_code2():
+    ...
