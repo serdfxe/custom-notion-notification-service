@@ -67,6 +67,10 @@ jobs:
           sleep 1
         done
 
+    - name: Run migrations
+      run: |
+        alembic upgrade head
+
     - name: Run tests
       env:
         DATABASE_URL: postgres://user:password@localhost:5432/test_db
