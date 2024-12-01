@@ -1,15 +1,16 @@
 from datetime import date
+from time import strptime
 from typing import Annotated
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Header, Request, Depends, Response
+from fastapi import APIRouter, HTTPException, Header, Request, Depends, Response, status
 
 from core.db.repository import DatabaseRepository
 from core.fastapi.dependencies import get_repository
 
 from app.models.reminder import Reminder
 
-from .dto import ReminderResponseDTO, ReminderCreateDTO
+from .dto import GetRemindersByDateDTO, ReminderResponseDTO, ReminderCreateDTO
 
 
 ReminderRepository = Annotated[
@@ -32,17 +33,26 @@ async def get_reminder_route(
     reminder_id: UUID,
     x_user_id: Annotated[str, Header()],
     request: Request,
-    response: Response,
     repository: ReminderRepository,
 ):
-    """
-    Retrieve reminder data.
+    user_id = x_user_id
+    user_id = request.headers.get("X-User-Id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error_message": "Missing X-User-Id header."},
+        )
 
-    This operation fetches the details of a specific reminder associated with
-    the provided `reminder_id` and the user identification, which is obtained
-    from the X-User-Id header. If no reminder is found for the specified ID,
-    a 404 error will be returned.
-    """
+    reminder = await repository.get(
+        Reminder.id == reminder_id, Reminder.user_id == user_id
+    )
+    if reminder is None or reminder.user_id != UUID(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error_message": "Reminder not found."},
+        )
+
+    return reminder
 
 
 @reminder_router.get(
@@ -55,28 +65,41 @@ async def get_reminder_route(
 async def get_all_reminders_route(
     x_user_id: Annotated[str, Header()],
     request: Request,
-    response: Response,
     repository: ReminderRepository,
     start_date: date | None = None,
     end_date: date | None = None,
 ):
-    """
-    Retrieve all reminder data.
+    user_id = x_user_id
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error_message": "Missing X-User-Id header."},
+        )
 
-    This endpoint allows you to access all reminders associated with a specific user,
-    whose identification is provided by the X-User-Id header.
+    if start_date is None:
+        if end_date is None:
+            reminders = await repository.filter(
+                Reminder.user_id == user_id,
+            )
+        else:
+            reminders = await repository.filter(
+                Reminder.user_id == user_id,
+                Reminder.date <= end_date,
+            )
+    else:
+        if end_date is None:
+            reminders = await repository.filter(
+                Reminder.user_id == user_id,
+                Reminder.date >= start_date,
+            )
+        else:
+            reminders = await repository.filter(
+                Reminder.user_id == user_id,
+                Reminder.date >= start_date,
+                Reminder.date <= end_date,
+            )
 
-    Date filtering parameters:
-    - If only the `start_date` parameter is set, all reminders that start after the specified date
-      (inclusive) will be returned.
-    - If both parameters (`start_date` and `end_date`) are provided, all reminders occurring
-      within the range defined by these two dates (inclusive) will be returned.
-    - If only the `end_date` parameter is set, all reminders occurring before the specified
-      date (inclusive) will be returned.
-    - If neither parameter is set, all reminders associated with the user will be returned.
-
-    The returned data is presented in the ReminderResponseDTO format.
-    """
+    return reminders
 
 
 @reminder_router.post(
@@ -88,20 +111,27 @@ async def get_all_reminders_route(
 )
 async def create_reminder_route(
     data: ReminderCreateDTO,
-    x_user_id: Annotated[str, Header()],
     request: Request,
     response: Response,
     repository: ReminderRepository,
 ):
-    """
-    Create a new reminder.
+    user_id = request.headers.get("X-User-Id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error_message": "Missing X-User-Id header."},
+        )
 
-    This operation allows the creation of a new reminder based on the provided
-    data. The reminder is linked to the user identified by the X-User-Id header.
-    If the input data is invalid or if a reminder with the same details already
-    exists, appropriate error responses will be returned (400 for bad requests
-    and 409 for conflicts).
-    """
+    new_reminder = await repository.create(
+        id=uuid4(),
+        user_id=UUID(user_id),
+        date=data.date,
+        text=data.text,
+    )
+
+    response.status_code = status.HTTP_201_CREATED
+
+    return new_reminder
 
 
 @reminder_router.delete(
@@ -115,13 +145,20 @@ async def delete_reminder_route(
     reminder_id: UUID,
     x_user_id: Annotated[str, Header()],
     request: Request,
-    response: Response,
     repository: ReminderRepository,
 ):
-    """
-    Delete a reminder.
+    user_id = x_user_id
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error_message": "Missing X-User-Id header."},
+        )
 
-    This operation removes the reminder associated with the specified `id`
-    and the user identification, which is verified through the X-User-Id header.
-    If the reminder does not exist, a 404 error will be returned.
-    """
+    reminder_to_delete = await repository.get(Reminder.id == reminder_id)
+    if reminder_to_delete is None or reminder_to_delete.user_id != UUID(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error_message": "Reminder not found."},
+        )
+
+    await repository.delete(Reminder.id == reminder_id)
