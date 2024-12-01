@@ -1,7 +1,7 @@
 import uuid
 from typing import Generic, TypeVar
 
-from sqlalchemy import BinaryExpression, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db import Base
@@ -44,7 +44,7 @@ class DatabaseRepository(Generic[Model]):
             await self.session.commit()
 
     async def update(self, id: uuid.UUID, data: dict):
-        user = await self.session.get(self.model, id)
+        user = await self.session.get(self.model, self.model.id == id)
         if user is not None:
             for key, value in data.items():
                 setattr(user, key, value)
