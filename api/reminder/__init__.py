@@ -2,7 +2,7 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Header, Request, Depends, Response
+from fastapi import APIRouter, Header, Depends, HTTPException
 
 from core.db.repository import DatabaseRepository
 from core.fastapi.dependencies import get_repository
@@ -31,8 +31,6 @@ reminder_router = APIRouter(prefix="/reminder", tags=["reminder"])
 async def get_reminder_route(
     reminder_id: UUID,
     x_user_id: Annotated[str, Header()],
-    request: Request,
-    response: Response,
     repository: ReminderRepository,
 ):
     """
@@ -44,6 +42,17 @@ async def get_reminder_route(
     a 404 error will be returned.
     """
 
+    reminder = await repository.get(
+        Reminder.id == reminder_id, Reminder.user_id == x_user_id
+    )
+
+    if not reminder:
+        raise HTTPException(
+            status_code=404, detail={"error_message": "Reminder not found."}
+        )
+
+    return reminder
+
 
 @reminder_router.get(
     "/",
@@ -54,8 +63,6 @@ async def get_reminder_route(
 )
 async def get_all_reminders_route(
     x_user_id: Annotated[str, Header()],
-    request: Request,
-    response: Response,
     repository: ReminderRepository,
     start_date: date | None = None,
     end_date: date | None = None,
@@ -77,10 +84,20 @@ async def get_all_reminders_route(
 
     The returned data is presented in the ReminderResponseDTO format.
     """
+    filters = [Reminder.user_id == x_user_id]
+
+    if start_date:
+        filters.append(Reminder.date >= start_date)
+    if end_date:
+        filters.append(Reminder.date <= end_date)
+
+    reminders = await repository.filter(*filters)
+    return reminders
 
 
 @reminder_router.post(
     "/",
+    status_code=201,
     response_model=ReminderResponseDTO,
     responses={
         201: {"description": "Reminder created successfully."},
@@ -89,8 +106,6 @@ async def get_all_reminders_route(
 async def create_reminder_route(
     data: ReminderCreateDTO,
     x_user_id: Annotated[str, Header()],
-    request: Request,
-    response: Response,
     repository: ReminderRepository,
 ):
     """
@@ -103,6 +118,23 @@ async def create_reminder_route(
     and 409 for conflicts).
     """
 
+    existing_reminder = await repository.filter(
+        Reminder.user_id == x_user_id,
+        Reminder.text == data.text,
+        Reminder.date == data.date,
+    )
+
+    if existing_reminder:
+        raise HTTPException(
+            status_code=409, detail={"error_message": "Reminder already exists."}
+        )
+
+    new_reminder = await repository.create(
+        user_id=x_user_id, text=data.text, date=data.date
+    )
+
+    return new_reminder
+
 
 @reminder_router.delete(
     "/{reminder_id}",
@@ -114,8 +146,6 @@ async def create_reminder_route(
 async def delete_reminder_route(
     reminder_id: UUID,
     x_user_id: Annotated[str, Header()],
-    request: Request,
-    response: Response,
     repository: ReminderRepository,
 ):
     """
@@ -125,3 +155,12 @@ async def delete_reminder_route(
     and the user identification, which is verified through the X-User-Id header.
     If the reminder does not exist, a 404 error will be returned.
     """
+
+    try:
+        await repository.get(Reminder.id == reminder_id, Reminder.user_id == x_user_id)
+    except Exception:
+        raise HTTPException(
+            status_code=404, detail={"error_message": "Reminder not found."}
+        )
+
+    await repository.delete(Reminder.id == reminder_id, Reminder.user_id == x_user_id)
